@@ -24,6 +24,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 	"github.com/aquilax/go-perlin"
 	dialog2 "github.com/sqweek/dialog"
+	"github.com/yeqown/go-qrcode/v2"
 )
 
 var graph = image.NewRGBA64(image.Rect(0, 0, 1200, 1200))
@@ -51,7 +52,11 @@ func main() {
 	w.SetContent(
 		container.NewBorder(
 			container.NewCenter(widget.NewRichTextFromMarkdown("# Qraph")), nil, nil, nil,
-			container.NewAppTabs(container.NewTabItem("Equations", equationsPage()), container.NewTabItem("Noise", perlinPage(w))),
+			container.NewAppTabs(
+				container.NewTabItem("Equations", equationsPage()),
+				container.NewTabItem("Noise", perlinPage(w)),
+				container.NewTabItem("QR-Code", qrPage()),
+			),
 		))
 	w.Resize(fyne.NewSize(400, 600))
 	w.ShowAndRun()
@@ -139,15 +144,19 @@ func perlinPage(w fyne.Window) fyne.CanvasObject {
 	var pixelPerSecond = widget.NewLabel("N/A pps")
 	var rendering = widget.NewLabel("Rendering... N/A%")
 
+	var codeBlock = widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{Monospace: true})
+
 	var rtc int32
 
-	var resetButton = widget.NewButton("Apply", func() {
+	var resetButton = widget.NewButton("Render", func() {
 		t := time.Now()
 		p := perlin.NewPerlin(a, b, n, seed)
 		min := graph.Rect.Min
 		max := graph.Rect.Max
 
 		totalPixels := max.X * max.Y
+
+		codeBlock.SetText(genCode(a, b, n, seed, xDivide, zDivide, intensify, max.X, max.Y))
 
 		var i int
 		for x := min.X; x < max.X; x++ {
@@ -198,7 +207,8 @@ func perlinPage(w fyne.Window) fyne.CanvasObject {
 		}
 
 		timeTaken := time.Since(t)
-		pixelPerSecond.SetText(fmt.Sprintf("%d pps", int(float64(totalPixels)/timeTaken.Seconds())))
+
+		pixelPerSecond.SetText(fmt.Sprintf("%d px/s", int(float64(totalPixels)/math.Max(1, math.Ceil(timeTaken.Seconds())))))
 	})
 
 	go func() {
@@ -218,7 +228,7 @@ func perlinPage(w fyne.Window) fyne.CanvasObject {
 	})
 	colorModeSelect.SetSelected(colorMode)
 	cM := container.NewBorder(nil, nil, widget.NewLabel("Color"), nil, colorModeSelect)
-	rM := widget.NewCheck("Individual Refresh", func(b bool) {
+	rM := widget.NewCheck("Real time reload", func(b bool) {
 		individualRefresh = b
 	})
 
@@ -254,8 +264,7 @@ func perlinPage(w fyne.Window) fyne.CanvasObject {
 
 	topBottom := container.NewHBox(
 		cM,
-		container.NewGridWithColumns(2, widget.NewLabel("X-div"), xDivideInput),
-		container.NewGridWithColumns(2, widget.NewLabel("Z-div"), zDivideInput),
+		container.NewGridWithColumns(3, widget.NewLabel("Focus"), xDivideInput, zDivideInput),
 		container.NewGridWithColumns(2, widget.NewLabel("Intensity"), intensifyInput),
 		rM,
 		widget.NewButton("Resize", func() {
@@ -300,8 +309,11 @@ func perlinPage(w fyne.Window) fyne.CanvasObject {
 
 			dialog.Show()
 		}),
-		widget.NewButton("Save As", func() {
-			p, _ := dialog2.File().Filter("PNG (.png)", "png").Filter("JPEG (.jpg/.jpeg/.jfif)", ".jpg", ".jpeg", ".jfif").Save()
+		widget.NewButton("Export", func() {
+			p, err := dialog2.File().Filter("PNG (.png)", "png").Filter("JPEG (.jpg/.jpeg/.jfif)", ".jpg", ".jpeg", ".jfif").Save()
+			if err != nil {
+				return
+			}
 			extI := strings.LastIndex(p, ".")
 			var ext string
 			if extI != -1 {
@@ -328,5 +340,81 @@ func perlinPage(w fyne.Window) fyne.CanvasObject {
 		container.NewBorder(nil, nil, widget.NewLabel("Seed"), nil, seedInput),
 	))
 
-	return container.NewBorder(top, container.NewHBox(pixelPerSecond, layout.NewSpacer(), rendering), nil, nil, container.NewStack(whiteBackground, img))
+	return container.NewBorder(top, container.NewHBox(container.NewBorder(nil, pixelPerSecond, nil, nil,
+		container.NewBorder(widget.NewLabel("Code: "), nil, nil, nil, codeBlock),
+	), layout.NewSpacer(), rendering), nil, nil, container.NewStack(whiteBackground, img))
+}
+
+func genCode(a, b float64, i int32, seed int64, xd, zd, is float64, w, h int) string {
+	return fmt.Sprintf("import \"github.com/aquilax/go-perlin\"\n\nvar p = perlin.NewPerlin(%f, %f, %d, %d)\nfor x := 0; x < %d; x++ {\n\tfor y := 0; y < %d; y++ {\n\t\tvar value = p.Perlin2D(x/%f, y/%f)*%f\n\t}\n}", a, b, i, seed, w, h, xd, zd, is)
+}
+
+func qrPage() fyne.CanvasObject {
+	textEntry := widget.NewEntry()
+	genButton := widget.NewButton("Generate", nil)
+	img := canvas.NewImageFromImage(nil)
+	img.FillMode = canvas.ImageFillContain
+
+	saveButton := widget.NewButton("Export", func() {
+		p, err := dialog2.File().Filter("PNG (.png)", "png").Filter("JPEG (.jpg/.jpeg/.jfif)", ".jpg", ".jpeg", ".jfif").Save()
+		if err != nil {
+			return
+		}
+		extI := strings.LastIndex(p, ".")
+		var ext string
+		if extI != -1 {
+			ext = p[extI:]
+		}
+
+		file, _ := os.Create(p)
+
+		switch ext {
+		case "jpeg", "jpg", "jfif":
+			jpeg.Encode(file, img.Image, nil)
+		default:
+			png.Encode(file, img.Image)
+		}
+
+		file.Close()
+	})
+
+	top := container.NewBorder(nil, container.NewHBox(layout.NewSpacer(), saveButton), widget.NewLabel("Text:"), genButton, textEntry)
+
+	var imgw = imageWriter{
+		img,
+	}
+
+	genButton.OnTapped = func() {
+		c, _ := qrcode.New(textEntry.Text)
+
+		c.Save(imgw)
+	}
+
+	return container.NewBorder(top, nil, nil, nil, img)
+}
+
+type imageWriter struct {
+	img *canvas.Image
+}
+
+func (i imageWriter) Write(mat qrcode.Matrix) error {
+	image := image.NewRGBA(image.Rect(0, 0, mat.Width(), mat.Height()))
+	i.img.Image = image
+
+	mat.Iterate(qrcode.IterDirection_ROW, func(x, y int, s qrcode.QRValue) {
+		var c = color.White
+		if s.IsSet() {
+			c = color.Black
+		}
+
+		image.Set(x, y, c)
+	})
+
+	i.img.Refresh()
+
+	return nil
+}
+
+func (imageWriter) Close() error {
+	return nil
 }
