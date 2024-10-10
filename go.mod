@@ -7,6 +7,7 @@ require fyne.io/fyne/v2 v2.5.1
 require (
 	fyne.io/systray v1.11.0 // indirect
 	github.com/BurntSushi/toml v1.4.0 // indirect
+	github.com/Knetic/govaluate v3.0.0+incompatible // indirect
 	github.com/TheTitanrain/w32 v0.0.0-20180517000239-4f5cfb03fabf // indirect
 	github.com/aquilax/go-perlin v1.1.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect

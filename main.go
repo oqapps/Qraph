@@ -7,8 +7,8 @@ import (
 	"image/jpeg"
 	"image/png"
 	"math"
-	"math/rand/v2"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -21,6 +21,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/aquilax/go-perlin"
 	dialog2 "github.com/sqweek/dialog"
@@ -31,14 +32,14 @@ var graph = image.NewRGBA64(image.Rect(0, 0, 1200, 1200))
 
 var p = perlin.NewPerlin(2, 2, 1, 39530)
 
-func newWhiteBackground(w, h int) *image.RGBA {
-	var whiteBackground = image.NewRGBA(image.Rect(0, 0, w, h))
+func newWhiteBackground(w, h int) *image.Gray16 {
+	var whiteBackground = image.NewGray16(image.Rect(0, 0, w, h))
 	min := whiteBackground.Rect.Min
 	max := whiteBackground.Rect.Max
 
 	for x := min.X; x < max.X; x++ {
 		for y := min.Y; y < max.Y; y++ {
-			whiteBackground.Set(x, y, white)
+			whiteBackground.Set(x, y, color.White)
 		}
 	}
 
@@ -62,23 +63,58 @@ func main() {
 	w.ShowAndRun()
 }
 
-var white = color.RGBA{255, 255, 255, 255}
-
 func equationsPage() fyne.CanvasObject {
 	img := canvas.NewImageFromImage(graph)
 	img.ScaleMode = canvas.ImageScaleFastest
-	img.FillMode = canvas.ImageFillContain
+	img.FillMode = canvas.ImageFillStretch
 
 	addGraph(constantX(0), color.White)
 	addGraph(constantY(0), color.White)
 
-	top := widget.NewButton("Add Quadratic", func() {
-		addGraph(quadratic(rand.Float64()*0.05, rand.Float64()*6, rand.Float64()*6), nil)
+	eqList := container.NewAdaptiveGrid(4)
 
-		img.Refresh()
+	return container.NewBorder(container.NewVBox(container.NewHBox(widget.NewButtonWithIcon("", theme.ContentAddIcon(), func() {
+		color := colorrand()
+
+		entry := widget.NewEntry()
+
+		entry.OnChanged = func(s string) {
+			g, err := parseMultiequationGraph(s)
+			if err != nil {
+				return
+			}
+
+			graphs[color] = []Graph{g}
+			reset()
+			img.Refresh()
+		}
+
+		circle := canvas.NewRectangle(color)
+		circle.CornerRadius = 17
+		circle.SetMinSize(fyne.NewSquareSize(entry.MinSize().Height))
+
+		deleteButton := &widget.Button{
+			Icon:       theme.ContentRemoveIcon(),
+			Importance: widget.DangerImportance,
+			OnTapped: func() {
+				i := colorIndexOf(eqList, color)
+				eqList.Objects = slices.Delete(eqList.Objects, i, i+1)
+				eqList.Refresh()
+
+				delete(graphs, color)
+				reset()
+				img.Refresh()
+			},
+		}
+
+		eqList.Add(container.NewBorder(nil, nil, circle, deleteButton, entry))
+	})), eqList), nil, nil, nil, img)
+}
+
+func colorIndexOf(cont *fyne.Container, c color.Color) int {
+	return slices.IndexFunc(cont.Objects, func(w fyne.CanvasObject) bool {
+		return w.(*fyne.Container).Objects[1].(*canvas.Rectangle).FillColor == c
 	})
-
-	return container.NewBorder(top, nil, nil, nil, img)
 }
 
 func perlinPage(w fyne.Window) fyne.CanvasObject {
@@ -93,6 +129,8 @@ func perlinPage(w fyne.Window) fyne.CanvasObject {
 	var seed int64 = 123456
 	var colorMode = "NRGBA64"
 	var individualRefresh = false
+	var renderProgress = true
+	var useWhiteBackground = true
 
 	var xDivide = 15.0
 	var zDivide = 15.0
@@ -198,7 +236,9 @@ func perlinPage(w fyne.Window) fyne.CanvasObject {
 					img.Refresh()
 				}
 				i++
-				atomic.StoreInt32(&rtc, int32(i*100/totalPixels))
+				if renderProgress {
+					atomic.StoreInt32(&rtc, int32(i*100/totalPixels))
+				}
 			}
 		}
 
@@ -208,7 +248,7 @@ func perlinPage(w fyne.Window) fyne.CanvasObject {
 
 		timeTaken := time.Since(t)
 
-		pixelPerSecond.SetText(fmt.Sprintf("%d px/s", int(float64(totalPixels)/math.Max(1, math.Ceil(timeTaken.Seconds())))))
+		pixelPerSecond.SetText(fmt.Sprintf("%d px/s (%ds)", int(float64(totalPixels)/math.Max(1, math.Ceil(timeTaken.Seconds()))), int(timeTaken.Seconds())))
 	})
 
 	go func() {
@@ -231,6 +271,22 @@ func perlinPage(w fyne.Window) fyne.CanvasObject {
 	rM := widget.NewCheck("Real time reload", func(b bool) {
 		individualRefresh = b
 	})
+	pM := widget.NewCheck("Render progress", func(b bool) {
+		renderProgress = b
+	})
+	wB := widget.NewCheck("White background", func(b bool) {
+		useWhiteBackground = b
+		if !b {
+			whiteBackground.Hide()
+		} else {
+			if graph.Rect.Max != whiteBackground.Image.Bounds().Max {
+				whiteBackground.Image = newWhiteBackground(graph.Rect.Dx(), graph.Rect.Dy())
+			}
+			whiteBackground.Show()
+		}
+	})
+	wB.SetChecked(useWhiteBackground)
+	pM.SetChecked(renderProgress)
 
 	var xDivideInput = widget.NewEntry()
 	xDivideInput.SetText(strconv.FormatFloat(xDivide, 'f', 2, 64))
@@ -266,7 +322,9 @@ func perlinPage(w fyne.Window) fyne.CanvasObject {
 		cM,
 		container.NewGridWithColumns(3, widget.NewLabel("Focus"), xDivideInput, zDivideInput),
 		container.NewGridWithColumns(2, widget.NewLabel("Intensity"), intensifyInput),
+		wB,
 		rM,
+		pM,
 		widget.NewButton("Resize", func() {
 			var newWidth = graph.Rect.Dx()
 			var newHeight = graph.Rect.Dy()
@@ -297,8 +355,10 @@ func perlinPage(w fyne.Window) fyne.CanvasObject {
 			dialog := dialog.NewCustomWithoutButtons("Resize", container.NewCenter(container.NewVBox(width, height)), w)
 			dialog.SetButtons([]fyne.CanvasObject{
 				widget.NewButton("Resize", func() {
-					whiteBackground.Image = newWhiteBackground(newWidth, newHeight)
-					whiteBackground.Refresh()
+					if useWhiteBackground {
+						whiteBackground.Image = newWhiteBackground(newWidth, newHeight)
+						whiteBackground.Refresh()
+					}
 
 					graph = image.NewNRGBA64(image.Rect(0, 0, newWidth, newHeight))
 					img.Image = graph
@@ -342,7 +402,7 @@ func perlinPage(w fyne.Window) fyne.CanvasObject {
 
 	return container.NewBorder(top, container.NewHBox(container.NewBorder(nil, pixelPerSecond, nil, nil,
 		container.NewBorder(widget.NewLabel("Code: "), nil, nil, nil, codeBlock),
-	), layout.NewSpacer(), rendering), nil, nil, container.NewStack(whiteBackground, img))
+	), layout.NewSpacer(), container.NewVBox(layout.NewSpacer(), rendering)), nil, nil, container.NewStack(whiteBackground, img))
 }
 
 func genCode(a, b float64, i int32, seed int64, xd, zd, is float64, w, h int) string {
@@ -354,6 +414,7 @@ func qrPage() fyne.CanvasObject {
 	genButton := widget.NewButton("Generate", nil)
 	img := canvas.NewImageFromImage(nil)
 	img.FillMode = canvas.ImageFillContain
+	img.ScaleMode = canvas.ImageScalePixels
 
 	saveButton := widget.NewButton("Export", func() {
 		p, err := dialog2.File().Filter("PNG (.png)", "png").Filter("JPEG (.jpg/.jpeg/.jfif)", ".jpg", ".jpeg", ".jfif").Save()
