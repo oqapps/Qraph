@@ -65,28 +65,42 @@ func main() {
 
 func equationsPage() fyne.CanvasObject {
 	img := canvas.NewImageFromImage(graph)
-	img.ScaleMode = canvas.ImageScaleFastest
-	img.FillMode = canvas.ImageFillStretch
+	img.ScaleMode = canvas.ImageScaleSmooth
+
+	precisionInput := widget.NewEntry()
+	precisionInput.OnChanged = func(s string) {
+		i, err := strconv.ParseFloat(s, 64)
+		if err != nil {
+			return
+		}
+		precision = i
+	}
+	precisionInput.SetText(strconv.FormatFloat(precision, 'f', 2, 64))
+
+	renderingText := widget.NewLabel("Rendering...")
+	renderingText.Hide()
 
 	addGraph(constantX(0), color.White)
 	addGraph(constantY(0), color.White)
 
 	eqList := container.NewAdaptiveGrid(4)
 
-	return container.NewBorder(container.NewVBox(container.NewHBox(widget.NewButtonWithIcon("", theme.ContentAddIcon(), func() {
+	return container.NewBorder(container.NewVBox(container.NewHBox(widget.NewLabel("Precision"), precisionInput, widget.NewButtonWithIcon("", theme.ContentAddIcon(), func() {
 		color := colorrand()
 
 		entry := widget.NewEntry()
 
-		entry.OnChanged = func(s string) {
+		entry.OnSubmitted = func(s string) {
 			g, err := parseMultiequationGraph(s)
 			if err != nil {
 				return
 			}
 
 			graphs[color] = []Graph{g}
+			renderingText.Show()
 			reset()
 			img.Refresh()
+			renderingText.Hide()
 		}
 
 		circle := canvas.NewRectangle(color)
@@ -108,7 +122,7 @@ func equationsPage() fyne.CanvasObject {
 		}
 
 		eqList.Add(container.NewBorder(nil, nil, circle, deleteButton, entry))
-	})), eqList), nil, nil, nil, img)
+	})), eqList), container.NewHBox(layout.NewSpacer(), renderingText), nil, nil, img)
 }
 
 func colorIndexOf(cont *fyne.Container, c color.Color) int {
