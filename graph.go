@@ -43,7 +43,6 @@ func parseMultiequationGraph(str string) (Graph, error) {
 		}
 
 		for i, q := range z[1] {
-			params["x1"] = x1[i]
 			v, _ := q.Evaluate(params)
 			y1[i], _ = v.(float64)
 		}
@@ -225,6 +224,7 @@ s:
 		case ',':
 			if open {
 				currentString += string(char)
+				continue
 			}
 			strs0 = append(strs0, currentString)
 			currentString = ""
@@ -236,11 +236,16 @@ s:
 			currentString += string(char)
 		}
 	}
+	strs0 = append(strs0, currentString)
+	currentString = ""
+	open = false
+
 	for _, char := range strs[1][0] {
 		switch char {
 		case ',':
 			if open {
 				currentString += string(char)
+				continue
 			}
 			strs1 = append(strs1, currentString)
 			currentString = ""
@@ -252,6 +257,8 @@ s:
 			currentString += string(char)
 		}
 	}
+	strs1 = append(strs1, currentString)
+	strs[0], strs[1] = strs0, strs1
 
 	return strs
 }
