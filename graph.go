@@ -19,6 +19,14 @@ var precision = 0.01
 
 var graphs = make(map[color.Color][]Graph)
 
+type pc1 struct {
+	a, b, x float64
+	n       int32
+	seed    int64
+}
+
+var perlinCache = map[pc1]float64{}
+
 func parseMultiequationGraph(str string) (Graph, error) {
 	z, err := parseMultiequationExpressions(str)
 	if err != nil {
@@ -76,9 +84,17 @@ var functions = map[string]govaluate.ExpressionFunction{
 		if len(arguments) != 5 {
 			return 0, fmt.Errorf("must have 5 arguments: alpha, beta, n, seed, x")
 		}
-		p := perlin.NewPerlin(arguments[0].(float64), arguments[1].(float64), int32(arguments[2].(float64)), int64(arguments[3].(float64)))
+		pc := pc1{arguments[0].(float64), arguments[1].(float64), arguments[4].(float64), int32(arguments[2].(float64)), int64(arguments[3].(float64))}
+		v, ok := perlinCache[pc]
+		if ok {
+			return v, nil
+		}
 
-		return p.Noise1D(arguments[4].(float64)), nil
+		p := perlin.NewPerlin(arguments[0].(float64), arguments[1].(float64), int32(arguments[2].(float64)), int64(arguments[3].(float64)))
+		v = p.Noise1D(arguments[4].(float64))
+		perlinCache[pc] = v
+
+		return v, nil
 	},
 	"p2": func(arguments ...interface{}) (interface{}, error) {
 		if len(arguments) != 6 {
@@ -219,45 +235,49 @@ s:
 	currentString = ""
 	open = false
 
-	for _, char := range strs[0][0] {
-		switch char {
-		case ',':
-			if open {
+	if len(strs[0]) != 0 {
+		for _, char := range strs[0][0] {
+			switch char {
+			case ',':
+				if open {
+					currentString += string(char)
+					continue
+				}
+				strs0 = append(strs0, currentString)
+				currentString = ""
+				open = false
+			case '(', ')':
+				open = char == '('
+				fallthrough
+			default:
 				currentString += string(char)
-				continue
 			}
-			strs0 = append(strs0, currentString)
-			currentString = ""
-			open = false
-		case '(', ')':
-			open = char == '('
-			fallthrough
-		default:
-			currentString += string(char)
 		}
+		strs0 = append(strs0, currentString)
+		currentString = ""
+		open = false
 	}
-	strs0 = append(strs0, currentString)
-	currentString = ""
-	open = false
 
-	for _, char := range strs[1][0] {
-		switch char {
-		case ',':
-			if open {
+	if len(strs[1]) != 0 {
+		for _, char := range strs[1][0] {
+			switch char {
+			case ',':
+				if open {
+					currentString += string(char)
+					continue
+				}
+				strs1 = append(strs1, currentString)
+				currentString = ""
+				open = false
+			case '(', ')':
+				open = char == '('
+				fallthrough
+			default:
 				currentString += string(char)
-				continue
 			}
-			strs1 = append(strs1, currentString)
-			currentString = ""
-			open = false
-		case '(', ')':
-			open = char == '('
-			fallthrough
-		default:
-			currentString += string(char)
 		}
+		strs1 = append(strs1, currentString)
 	}
-	strs1 = append(strs1, currentString)
 	strs[0], strs[1] = strs0, strs1
 
 	return strs
@@ -276,16 +296,20 @@ func applyGraph(f Graph, c color.Color) {
 
 		for _, x1 := range xs {
 			for _, y1 := range ys {
-				graph.Set(int(dx+x1), int(dy-y1), c)
-
-				graph.Set(int(dx+x1+1), int(dy-y1), c)
-				graph.Set(int(dx+x1), int(dy-y1+1), c)
-
-				graph.Set(int(dx+x1+2), int(dy-y1), c)
-				graph.Set(int(dx+x1), int(dy-y1+2), c)
+				setpix(dx+x1, dy-y1, c)
 			}
 		}
 	}
+}
+
+func setpix(x, y float64, c color.Color) {
+	graph.Set(int(x), int(y), c)
+
+	graph.Set(int(x+1), int(y), c)
+	graph.Set(int(x), int(y+1), c)
+
+	graph.Set(int(x+2), int(y), c)
+	graph.Set(int(x), int(y+2), c)
 }
 
 func colorrand() color.Color {
@@ -318,7 +342,7 @@ func reset() {
 
 				for _, x1 := range xs {
 					for _, y1 := range ys {
-						graph.Set(int(dx+x1), int(dy-y1), c)
+						setpix(dx+x1, dy-y1, c)
 					}
 				}
 			}

@@ -65,7 +65,7 @@ func main() {
 
 func equationsPage() fyne.CanvasObject {
 	img := canvas.NewImageFromImage(graph)
-	img.ScaleMode = canvas.ImageScaleSmooth
+	img.ScaleMode = canvas.ImageScalePixels
 
 	precisionInput := widget.NewEntry()
 	precisionInput.OnChanged = func(s string) {
